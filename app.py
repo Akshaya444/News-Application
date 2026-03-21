@@ -97,7 +97,10 @@ def create_app() -> Flask:
             return articles
 
         # Top headlines
-        articles = client.top_headlines(country=country, category=category, q=q, page_size=24)
+        if q:
+            articles = client.top_headlines(country=country, category=category, q=q, page_size=24)
+else:
+    articles = client.top_headlines(country=country, category=category, page_size=24)
         if not articles and q:
             # If keyword filtering returns nothing, show top headlines for the same country/category.
             articles = client.top_headlines(country=country, category=category, q="", page_size=24)
