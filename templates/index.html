@@ -50,7 +50,7 @@
                       {% if params.mode == "search" %}<span class="text-muted small">(Top headlines only)</span>{% endif %}
                     </label>
                     <select class="form-select" name="country" id="countrySelect" {% if params.mode == "search" %}disabled{% endif %}>
-                      {% for c in ["us","in","gb","au","ca"] %}
+                      {% for c in ["United States","India","United Kingdom","Australia","Canada"] %}
                         <option value="{{ c }}" {% if params.country == c %}selected{% endif %}>{{ c|upper }}</option>
                       {% endfor %}
                     </select>
