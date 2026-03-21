@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>News Application</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom">
+      <div class="container">
+        <a class="navbar-brand fw-semibold" href="{{ url_for('index') }}">News Application</a>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="badge text-bg-secondary">Flask</span>
+          <span class="badge text-bg-secondary">NewsAPI</span>
+          <span class="badge text-bg-secondary">AI</span>
+        </div>
+      </div>
+    </nav>
+
+    <main class="container py-4">
+      <div class="row g-4">
+        <div class="col-12 col-lg-4">
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <h5 class="card-title mb-3">Find news</h5>
+              <form method="post" action="{{ url_for('go') }}" id="newsForm">
+                <div class="mb-3">
+                  <label class="form-label">Mode</label>
+                  <select class="form-select" name="mode" id="modeSelect">
+                    <option value="top" {% if params.mode != "search" %}selected{% endif %}>Top headlines</option>
+                    <option value="search" {% if params.mode == "search" %}selected{% endif %}>Search (Everything)</option>
+                  </select>
+                  <div class="form-text" id="modeHint">
+                    {% if params.mode == "search" %}
+                      Search uses your keyword only (country/category not used).
+                    {% else %}
+                      Top headlines uses country and category.
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">Keyword</label>
+                  <input class="form-control" name="q" id="keywordInput" value="{{ params.q }}" placeholder="e.g., AI, elections, cricket" />
+                </div>
+
+                <div class="row g-2">
+                  <div class="col-6">
+                    <label class="form-label">
+                      Country
+                      {% if params.mode == "search" %}<span class="text-muted small">(Top headlines only)</span>{% endif %}
+                    </label>
+                    <select class="form-select" name="country" id="countrySelect" {% if params.mode == "search" %}disabled{% endif %}>
+                      {% for c in ["us","in","gb","au","ca"] %}
+                        <option value="{{ c }}" {% if params.country == c %}selected{% endif %}>{{ c|upper }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">
+                      Category
+                      {% if params.mode == "search" %}<span class="text-muted small">(Top headlines only)</span>{% endif %}
+                    </label>
+                    <select class="form-select" name="category" id="categorySelect" {% if params.mode == "search" %}disabled{% endif %}>
+                      <option value="" {% if not params.category %}selected{% endif %}>All</option>
+                      {% for cat in ["business","entertainment","general","health","science","sports","technology"] %}
+                        <option value="{{ cat }}" {% if params.category == cat %}selected{% endif %}>{{ cat }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-check form-switch mt-3">
+                  <input class="form-check-input" type="checkbox" role="switch" id="cluster" name="cluster" {% if params.cluster == "1" %}checked{% endif %}>
+                  <label class="form-check-label" for="cluster">Group results automatically</label>
+                </div>
+
+                <button class="btn btn-primary w-100 mt-3" type="submit">Get news</button>
+              </form>
+            </div>
+          </div>
+
+          {% if error %}
+            <div class="alert alert-danger mt-3" role="alert">
+              <div class="fw-semibold">Error</div>
+              <div>{{ error }}</div>
+            </div>
+          {% endif %}
+
+          {% if warning and not error %}
+            <div class="alert alert-warning mt-3" role="alert">
+              <div class="fw-semibold">Using demo data</div>
+              <div>{{ warning }}</div>
+            </div>
+          {% endif %}
+
+          {% if not error and params.mode == "search" and not params.q %}
+            <div class="alert alert-info mt-3" role="alert">
+              Enter a keyword to search.
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="col-12 col-lg-8">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div>
+              <h4 class="mb-0">
+                {% if params.mode == "search" %}
+                  Search results
+                {% else %}
+                  Top headlines
+                {% endif %}
+              </h4>
+              <div class="text-muted small">
+                {% if selected_article %}
+                  Similar articles
+                {% else %}
+                  {{ articles|length }} articles
+                  {% if clusters %}
+                    • clustered into {{ (clusters|max) + 1 }} groups
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+            {% if tfidf_ready %}
+              <span class="badge text-bg-success">Recommendations ready</span>
+            {% else %}
+              <span class="badge text-bg-secondary">Recommendations not ready</span>
+            {% endif %}
+          </div>
+
+          {% if selected_article %}
+            <div class="mb-3">
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('index', **params) }}">← Back</a>
+            </div>
+
+            <div class="card shadow-sm">
+              {% if selected_article.image_url %}
+                <img src="{{ selected_article.image_url }}" class="card-img-top hero-img" alt="article image">
+              {% endif %}
+              <div class="card-body">
+                <div class="text-muted small mb-2">
+                  {{ selected_article.source or "Unknown source" }}
+                  {% if selected_article.author %} • {{ selected_article.author }}{% endif %}
+                  {% if selected_article.published_at %} • {{ selected_article.published_at }}{% endif %}
+                </div>
+                <h3 class="card-title">{{ selected_article.title or "Untitled" }}</h3>
+                {% if selected_article.description %}
+                  <p class="lead mt-3">{{ selected_article.description }}</p>
+                {% endif %}
+                {% if selected_article.content %}
+                  <p class="mt-3">{{ selected_article.content }}</p>
+                {% endif %}
+
+                {% if selected_article.url %}
+                  <a class="btn btn-primary mt-2" href="{{ selected_article.url }}" target="_blank" rel="noreferrer">Read full article</a>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="d-flex align-items-center justify-content-between">
+                <h5 class="mb-2">More like this</h5>
+                <span class="badge text-bg-success">Based on keyword matching</span>
+              </div>
+
+              {% if similar|length == 0 %}
+                <div class="text-muted mt-2">No strong similarities found on this page of results.</div>
+              {% else %}
+                <div class="list-group shadow-sm mt-2">
+                  {% for s in similar %}
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                       href="{{ url_for('index', idx=s.idx, **params) }}">
+                      <div class="me-3">{{ s.title }}</div>
+                      <span class="badge text-bg-light border">relevance {{ s.score }}</span>
+                    </a>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          {% else %}
+            {% if articles|length == 0 and not error %}
+              <div class="card">
+                <div class="card-body">
+                  No results. Try a different keyword or switch mode.
+                </div>
+              </div>
+            {% endif %}
+
+            <div class="row g-3">
+              {% for a in articles %}
+                <div class="col-12">
+                  <div class="card hover-card shadow-sm">
+                    <div class="row g-0">
+                      <div class="col-12 col-md-4">
+                        {% if a.image_url %}
+                          <img src="{{ a.image_url }}" class="img-fluid rounded-start cover-img" alt="article image">
+                        {% else %}
+                          <div class="placeholder-img rounded-start"></div>
+                        {% endif %}
+                      </div>
+                      <div class="col-12 col-md-8">
+                        <div class="card-body">
+                          <div class="d-flex align-items-start justify-content-between gap-2">
+                            <h5 class="card-title mb-1">{{ a.title or "Untitled" }}</h5>
+                            {% if clusters %}
+                              <span class="badge text-bg-light border">Cluster {{ clusters[loop.index0] }}</span>
+                            {% endif %}
+                          </div>
+                          <div class="small text-muted mb-2">
+                            {{ a.source or "Unknown source" }}
+                            {% if a.published_at %} • {{ a.published_at }}{% endif %}
+                          </div>
+                          <p class="card-text clamp-3">{{ a.description or a.content or "No description available." }}</p>
+                          <div class="d-flex gap-2 flex-wrap">
+                            <a class="btn btn-sm btn-primary"
+                               href="{{ url_for('index', idx=loop.index0, **params) }}">
+                               Open + More like this
+                            </a>
+                            {% if a.url %}
+                              <a class="btn btn-sm btn-outline-secondary" href="{{ a.url }}" target="_blank" rel="noreferrer">
+                                Read original
+                              </a>
+                            {% endif %}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </main>
+
+    <div id="loadingOverlay" class="loading-overlay d-none" aria-hidden="true">
+      <div class="loading-card">
+        <div class="spinner-border text-primary" role="status" aria-label="Loading"></div>
+        <div class="mt-2 fw-semibold">Getting latest news...</div>
+      </div>
+    </div>
+
+    <footer class="border-top">
+      <div class="container py-3 small text-muted">
+        Built with Flask. Data from NewsAPI.org.
+      </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+  </body>
+</html>
