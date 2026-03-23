@@ -13,7 +13,7 @@
     if (mode === "search") {
       hintEl.textContent = "Search uses your keyword only (country/category not used).";
     } else {
-      hintEl.textContent = "Top headlines uses country and category.";
+      hintEl.textContent = "Top headlines uses country and category only (keyword disabled).";
     }
   }
 
@@ -34,6 +34,7 @@
     if (modeSelect) {
       modeSelect.addEventListener("change", () => {
         const isSearch = modeSelect.value === "search";
+        enable(keywordInput, isSearch);
         enable(countrySelect, !isSearch);
         enable(categorySelect, !isSearch);
         setHint(modeSelect.value, modeHint);
@@ -59,6 +60,7 @@
     // Initial UI sync (in case server-side template didn't disable selects for some reason)
     const initialMode = modeSelect ? modeSelect.value : "top";
     const initialIsSearch = initialMode === "search";
+    enable(keywordInput, initialIsSearch);
     enable(countrySelect, !initialIsSearch);
     enable(categorySelect, !initialIsSearch);
     setHint(initialMode, modeHint);

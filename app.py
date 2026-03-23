@@ -66,6 +66,51 @@ FALLBACK_ARTICLES: List[NewsArticle] = [
 ]
 
 
+COUNTRY_ALIASES = {
+    "us": "us",
+    "united states": "us",
+    "in": "in",
+    "india": "in",
+    "gb": "gb",
+    "united kingdom": "gb",
+    "au": "au",
+    "australia": "au",
+    "ca": "ca",
+    "canada": "ca",
+}
+
+COUNTRY_NAMES = {
+    "us": "United States",
+    "in": "India",
+    "gb": "United Kingdom",
+    "au": "Australia",
+    "ca": "Canada",
+}
+
+ALLOWED_CATEGORIES = {
+    "",
+    "business",
+    "entertainment",
+    "general",
+    "health",
+    "science",
+    "sports",
+    "technology",
+}
+
+
+def _normalize_country(value: str) -> str:
+    raw = (value or "").strip().lower()
+    return COUNTRY_ALIASES.get(raw, "us")
+
+
+def _normalize_category(value: str) -> str:
+    raw = (value or "").strip().lower()
+    if raw in ALLOWED_CATEGORIES:
+        return raw
+    return ""
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
@@ -86,8 +131,8 @@ def create_app() -> Flask:
 
         mode = (request.args.get("mode") or "top").strip()
         q = (request.args.get("q") or "").strip()
-        country = (request.args.get("country") or "us").strip()
-        category = (request.args.get("category") or "").strip()
+        country = _normalize_country(request.args.get("country") or "us")
+        category = _normalize_category(request.args.get("category") or "")
 
         if mode == "search":
             if not q:
@@ -98,15 +143,25 @@ def create_app() -> Flask:
                 articles = client.top_headlines(country=country, category=category, q=q, page_size=24)
             return articles
 
-        if q:
-            articles = client.top_headlines(country=country, category=category, q=q, page_size=24)
-        else:
-            articles = client.top_headlines(country=country, category=category, page_size=24)
+        # Top mode must use only country/category (keyword is ignored).
+        q = ""
+        articles = client.top_headlines(country=country, category=category, page_size=24)
 
-        if not articles and q:
-            articles = client.top_headlines(country=country, category=category, q="", page_size=24)
-        if not articles and q:
-            articles = client.everything(q=q, page_size=24)
+        # Keep top mode country-locked. Retry only within the selected country.
+        if not articles and category:
+            articles = client.top_headlines(country=country, page_size=24)
+
+        if not articles:
+            articles = client.everything_by_country_sources(
+                country=country,
+                category=category,
+                page_size=24,
+            )
+
+        if not articles:
+            country_name = COUNTRY_NAMES.get(country, country)
+            fallback_query = f"{country_name} {category or 'news'}"
+            articles = client.everything(q=fallback_query, page_size=24)
 
         return articles
 
@@ -148,8 +203,9 @@ def create_app() -> Flask:
             else:
                 articles = FALLBACK_ARTICLES
 
+        mode = (request.args.get("mode") or "top").strip()
         q = (request.args.get("q") or "").strip()
-        if articles and q:
+        if articles and mode == "search" and q:
             try:
                 keep_idxs = filter_by_query(
                     titles=[a.title for a in articles],
@@ -207,8 +263,8 @@ def create_app() -> Flask:
             params={
                 "mode": (request.args.get("mode") or "top").strip(),
                 "q": (request.args.get("q") or "").strip(),
-                "country": (request.args.get("country") or "us").strip(),
-                "category": (request.args.get("category") or "").strip(),
+                "country": _normalize_country(request.args.get("country") or "us"),
+                "category": _normalize_category(request.args.get("category") or ""),
                 "cluster": (request.args.get("cluster") or "").strip(),
             },
         )
@@ -217,9 +273,11 @@ def create_app() -> Flask:
     def go():
         mode = (request.form.get("mode") or "top").strip()
         q = (request.form.get("q") or "").strip()
-        country = (request.form.get("country") or "us").strip()
-        category = (request.form.get("category") or "").strip()
+        country = _normalize_country(request.form.get("country") or "us")
+        category = _normalize_category(request.form.get("category") or "")
         cluster = "1" if (request.form.get("cluster") == "on") else ""
+        if mode != "search":
+            q = ""
 
         return redirect(
             url_for(

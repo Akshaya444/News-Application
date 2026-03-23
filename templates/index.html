@@ -40,7 +40,7 @@
 
                 <div class="mb-3">
                   <label class="form-label">Keyword</label>
-                  <input class="form-control" name="q" id="keywordInput" value="{{ params.q }}" placeholder="e.g., AI, elections, cricket" />
+                  <input class="form-control" name="q" id="keywordInput" value="{{ params.q }}" placeholder="e.g., AI, elections, cricket" {% if params.mode != "search" %}disabled{% endif %} />
                 </div>
 
                 <div class="row g-2">
@@ -50,9 +50,11 @@
                       {% if params.mode == "search" %}<span class="text-muted small">(Top headlines only)</span>{% endif %}
                     </label>
                     <select class="form-select" name="country" id="countrySelect" {% if params.mode == "search" %}disabled{% endif %}>
-                      {% for c in ["United States","India","United Kingdom","Australia","Canada"] %}
-                        <option value="{{ c }}" {% if params.country == c %}selected{% endif %}>{{ c|upper }}</option>
-                      {% endfor %}
+                      <option value="us" {% if params.country == "us" %}selected{% endif %}>UNITED STATES</option>
+                      <option value="in" {% if params.country == "in" %}selected{% endif %}>INDIA</option>
+                      <option value="gb" {% if params.country == "gb" %}selected{% endif %}>UNITED KINGDOM</option>
+                      <option value="au" {% if params.country == "au" %}selected{% endif %}>AUSTRALIA</option>
+                      <option value="ca" {% if params.country == "ca" %}selected{% endif %}>CANADA</option>
                     </select>
                   </div>
                   <div class="col-6">

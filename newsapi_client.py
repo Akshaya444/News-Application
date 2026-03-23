@@ -83,6 +83,7 @@ class NewsApiClient:
         q: str,
         language: str = "en",
         sort_by: str = "publishedAt",
+        sources: str = "",
         page_size: int = 20,
         page: int = 1,
     ) -> List[NewsArticle]:
@@ -93,9 +94,54 @@ class NewsApiClient:
             "pageSize": page_size,
             "page": page,
         }
+        if sources:
+            params["sources"] = sources
         return self._get("/everything", params=params)
 
+    def source_ids(self, *, country: str = "us", category: str = "", language: str = "") -> List[str]:
+        params: Dict[str, Any] = {"country": country}
+        if language:
+            params["language"] = language
+        if category:
+            params["category"] = category
+        payload = self._get_json("/top-headlines/sources", params=params)
+        raw_sources = payload.get("sources") or []
+        ids: List[str] = []
+        for s in raw_sources:
+            if not isinstance(s, dict):
+                continue
+            sid = (s.get("id") or "").strip()
+            if sid:
+                ids.append(sid)
+        return ids
+
+    def everything_by_country_sources(
+        self,
+        *,
+        country: str,
+        category: str = "",
+        page_size: int = 20,
+    ) -> List[NewsArticle]:
+        ids = self.source_ids(country=country, category=category)
+        if not ids and category:
+            ids = self.source_ids(country=country, category="")
+        if not ids:
+            return []
+
+        source_csv = ",".join(ids[:20])
+        return self.everything(
+            q="news",
+            sources=source_csv,
+            sort_by="publishedAt",
+            page_size=page_size,
+        )
+
     def _get(self, path: str, params: Dict[str, Any]) -> List[NewsArticle]:
+        payload = self._get_json(path, params=params)
+        raw_articles = payload.get("articles") or []
+        return [self._normalize_article(a) for a in raw_articles if isinstance(a, dict)]
+
+    def _get_json(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         headers = {"X-Api-Key": self.api_key}
         try:
@@ -114,9 +160,7 @@ class NewsApiClient:
 
         if not isinstance(payload, dict) or payload.get("status") != "ok":
             raise NewsApiError("Unexpected response from NewsAPI")
-
-        raw_articles = payload.get("articles") or []
-        return [self._normalize_article(a) for a in raw_articles if isinstance(a, dict)]
+        return payload
 
     def _normalize_article(self, a: Dict[str, Any]) -> NewsArticle:
         source = a.get("source") or {}
