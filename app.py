@@ -16,6 +16,9 @@ from model.predict import (
     most_similar_articles,
 )
 
+# ✅ NEW: Import database functions
+from database import create_table, save_articles, get_articles
+
 
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"), override=False)
 
@@ -67,6 +70,9 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
 
+    # ✅ NEW: Initialize database
+    create_table()
+
     api_key = os.environ.get("NEWSAPI_KEY", "")
     client: Optional[NewsApiClient]
     try:
@@ -83,30 +89,25 @@ def create_app() -> Flask:
         country = (request.args.get("country") or "us").strip()
         category = (request.args.get("category") or "").strip()
 
-        # Strategy:
-        # - First try the "correct" endpoint based on mode.
-        # - If it returns empty, retry with less constraints so the UI isn't empty.
         if mode == "search":
             if not q:
                 return []
 
             articles = client.everything(q=q, page_size=24)
             if not articles:
-                # Fallback to top-headlines with the same query.
                 articles = client.top_headlines(country=country, category=category, q=q, page_size=24)
             return articles
 
-        # Top headlines
         if q:
             articles = client.top_headlines(country=country, category=category, q=q, page_size=24)
-else:
-    articles = client.top_headlines(country=country, category=category, page_size=24)
+        else:
+            articles = client.top_headlines(country=country, category=category, page_size=24)
+
         if not articles and q:
-            # If keyword filtering returns nothing, show top headlines for the same country/category.
             articles = client.top_headlines(country=country, category=category, q="", page_size=24)
         if not articles and q:
-            # Last fallback: search across news by keyword.
             articles = client.everything(q=q, page_size=24)
+
         return articles
 
     @app.route("/", methods=["GET"])
@@ -120,12 +121,33 @@ else:
 
         try:
             articles = _get_articles()
-        except NewsApiError as e:
-            # Keep the app usable even if NewsAPI is temporarily unreachable.
-            warning = str(e)
-            articles = FALLBACK_ARTICLES
 
-        # Keyword-based filtering: keep only articles relevant to what the user typed.
+            # ✅ NEW: Save fetched articles to DB
+            if articles:
+                save_articles(articles)
+
+        except NewsApiError as e:
+            warning = str(e)
+
+            # ✅ NEW: Load from DB if API fails
+            db_rows = get_articles()
+            if db_rows:
+                articles = [
+                    NewsArticle(
+                        title=r[0],
+                        description=r[1],
+                        content=r[2],
+                        url="",
+                        image_url="",
+                        source="DB",
+                        author="",
+                        published_at=""
+                    )
+                    for r in db_rows
+                ]
+            else:
+                articles = FALLBACK_ARTICLES
+
         q = (request.args.get("q") or "").strip()
         if articles and q:
             try:
@@ -137,11 +159,8 @@ else:
                 )
                 articles = [articles[i] for i in keep_idxs]
             except Exception:
-                # If the model is missing or something goes wrong,
-                # just show the raw NewsAPI results.
                 pass
 
-        # ML: build TF-IDF and optionally cluster this page of results
         tfidf_ready = False
         if articles:
             _, X = build_tfidf_matrix(
@@ -151,7 +170,6 @@ else:
             )
             tfidf_ready = True
 
-            # If idx is provided, show article detail + similarity list on the same page.
             idx_param = (request.args.get("idx") or "").strip()
             if idx_param:
                 try:
@@ -173,7 +191,6 @@ else:
             if (request.args.get("cluster") or "").strip() == "1":
                 clusters = cluster_articles(X, n_clusters=4)
 
-        # Store minimal article dicts in template (no server-side session needed)
         article_dicts: List[Dict[str, Any]] = [asdict(a) for a in articles]
         selected_article = asdict(articles[selected_idx]) if selected_idx is not None and articles else None
 
@@ -198,7 +215,6 @@ else:
 
     @app.route("/go", methods=["POST"])
     def go():
-        # Small helper to keep the form POST -> redirect with querystring
         mode = (request.form.get("mode") or "top").strip()
         q = (request.form.get("q") or "").strip()
         country = (request.form.get("country") or "us").strip()
